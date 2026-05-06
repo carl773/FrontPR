@@ -35,9 +35,8 @@ jobs:
         run: cat scanner/scanner-output.json
 
       - name: POST scan results to backend
-        if: ${{ vars.FRONTPR_BACKEND_URL != '' }}
         env:
-          BACKEND_URL: ${{ vars.FRONTPR_BACKEND_URL }}
+          BACKEND_URL: https://frontpr-api-dev-ocm.azurewebsites.net
         run: |
           response=$(curl -s -w "\n%{http_code}" \
             -X POST "${BACKEND_URL}/api/scans/ingest" \
