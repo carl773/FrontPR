@@ -2,6 +2,7 @@ name: Backend Integration Test
 
 on:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   integration-test:
