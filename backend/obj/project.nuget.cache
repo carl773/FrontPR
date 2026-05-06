@@ -1,12 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "Vji1T6FabbE=",
+  "dgSpecHash": "MgJ9E5vKDRM=",
   "success": true,
   "projectFilePath": "/workspaces/FrontPR/backend/FrontPR.Api.csproj",
-  "expectedPackageFiles": [
-    "/home/codespace/.nuget/packages/microsoft.netcore.app.ref/9.0.14/microsoft.netcore.app.ref.9.0.14.nupkg.sha512",
-    "/home/codespace/.nuget/packages/microsoft.aspnetcore.app.ref/9.0.14/microsoft.aspnetcore.app.ref.9.0.14.nupkg.sha512",
-    "/home/codespace/.nuget/packages/microsoft.netcore.app.host.linux-x64/9.0.14/microsoft.netcore.app.host.linux-x64.9.0.14.nupkg.sha512"
-  ],
+  "expectedPackageFiles": [],
   "logs": []
 }

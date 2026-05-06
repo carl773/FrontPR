@@ -10,11 +10,11 @@
         "projectUniqueName": "/workspaces/FrontPR/backend/FrontPR.Api.csproj",
         "projectName": "FrontPR.Api",
         "projectPath": "/workspaces/FrontPR/backend/FrontPR.Api.csproj",
-        "packagesPath": "/home/codespace/.nuget/packages/",
+        "packagesPath": "/home/vscode/.nuget/packages/",
         "outputPath": "/workspaces/FrontPR/backend/obj/",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "/home/codespace/.nuget/NuGet/NuGet.Config"
+          "/home/vscode/.nuget/NuGet/NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net9.0"
@@ -38,7 +38,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.200"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -54,20 +54,6 @@
           ],
           "assetTargetFallback": true,
           "warn": true,
-          "downloadDependencies": [
-            {
-              "name": "Microsoft.AspNetCore.App.Ref",
-              "version": "[9.0.14, 9.0.14]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Host.linux-x64",
-              "version": "[9.0.14, 9.0.14]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Ref",
-              "version": "[9.0.14, 9.0.14]"
-            }
-          ],
           "frameworkReferences": {
             "Microsoft.AspNetCore.App": {
               "privateAssets": "none"
@@ -76,7 +62,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.200/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/9.0.313/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
