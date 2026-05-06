@@ -1,0 +1,79 @@
+name: Backend Integration Test
+
+on:
+  pull_request:
+
+jobs:
+  integration-test:
+    name: Scanner → Backend Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scanner/package-lock.json
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install scanner dependencies
+        working-directory: scanner
+        run: npm ci
+
+      - name: Build backend
+        working-directory: backend
+        run: dotnet build --configuration Release
+
+      - name: Start backend
+        working-directory: backend
+        env:
+          ASPNETCORE_URLS: http://localhost:5000
+        run: dotnet run --no-build --configuration Release > /tmp/backend.log 2>&1 &
+
+      - name: Wait for backend to be ready
+        run: |
+          echo "Waiting for backend to start..."
+          for i in $(seq 1 30); do
+            http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              http://localhost:5000/api/scans/ingest \
+              -H "Content-Type: application/json" \
+              -d '{}')
+            if [ "$http_code" != "000" ]; then
+              echo "Backend ready (HTTP $http_code)"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Backend did not start within 60 seconds"
+              cat /tmp/backend.log
+              exit 1
+            fi
+            echo "  Attempt $i: not ready, retrying in 2s..."
+            sleep 2
+          done
+
+      - name: Run scanner
+        working-directory: scanner
+        run: npm run scan -- --url https://example.com
+
+      - name: POST scan output to backend
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST http://localhost:5000/api/scans/ingest \
+            -H "Content-Type: application/json" \
+            -d @scanner/scanner-output.json)
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "Backend returned non-2xx status ($http_code) — failing workflow"
+            exit 1
+          fi
