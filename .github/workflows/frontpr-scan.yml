@@ -32,3 +32,23 @@ jobs:
 
       - name: Print scanner output
         run: cat scanner/scanner-output.json
+
+      - name: POST scan results to backend
+        if: ${{ vars.FRONTPR_BACKEND_URL != '' }}
+        env:
+          BACKEND_URL: ${{ vars.FRONTPR_BACKEND_URL }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "${BACKEND_URL}/api/scans/ingest" \
+            -H "Content-Type: application/json" \
+            -d @scanner/scanner-output.json)
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | head -n -1)
+          echo "HTTP Status: $http_code"
+          echo "Response: $body"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "Backend returned non-2xx status ($http_code) — failing step"
+            exit 1
+          fi
