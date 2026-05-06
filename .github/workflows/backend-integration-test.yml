@@ -29,6 +29,10 @@ jobs:
         working-directory: scanner
         run: npm ci
 
+      - name: Install Playwright browsers
+        working-directory: scanner
+        run: npx playwright install --with-deps chromium
+
       - name: Build backend
         working-directory: backend
         run: dotnet build --configuration Release
