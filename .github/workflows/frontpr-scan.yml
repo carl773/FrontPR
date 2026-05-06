@@ -49,7 +49,7 @@ jobs:
 
           http_code=$(echo "$response" | tail -1)
           body=$(echo "$response" | head -n -1)
-
+          
           if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
             echo "Backend returned non-2xx status ($http_code)"
             echo "Response: $body"
