@@ -100,7 +100,7 @@ FrontPR is in early development. Before using it in production, be aware of the 
 - **Scanner is a stub.** The current scanner generates a fake `scanner-output.json` for testing the pipeline. Real Playwright + axe scanning is not yet implemented.
 - **No GitHub PR status checks.** The backend does not yet post pass/fail checks or comments back to pull requests. Results are visible only in the Actions log.
 - **No Xano integration.** Scan results are not yet persisted to a database. The backend returns pass/fail only.
-- **No authentication enforcement.** API token validation is accepted by the backend but not enforced in all paths.
+- **Authentication is V0-simple.** Bearer token auth is enforced when `FRONTPR_API_TOKEN` is set on the backend. Token rotation and per-project keys will come in a later milestone.
 - **No dashboard.** There is no UI to browse scan history or findings yet.
 
 These limitations will be resolved as each vertical slice is completed.
