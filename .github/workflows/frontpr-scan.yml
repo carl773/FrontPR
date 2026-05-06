@@ -35,8 +35,20 @@ jobs:
         working-directory: scanner
         run: npm run scan -- --url https://example.com
 
-      - name: Print scanner output
-        run: cat scanner/scanner-output.json
+      - name: Print findings summary
+        run: |
+          jq -r '
+            "Target:   " + .targetUrl,
+            "Findings: " + (.findings | length | tostring),
+            "",
+            (.findings[:10][] |
+              "[\(.severity | ascii_upcase)] \(.ruleId)",
+              "  Title:  \(.title)",
+              "  Desc:   \(.description)",
+              "  Target: \(.filePath // "n/a")",
+              ""
+            )
+          ' scanner/scanner-output.json
 
       - name: POST scan results to backend
         env:
