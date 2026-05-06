@@ -45,7 +45,7 @@ jobs:
             http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               http://localhost:5000/api/scans/ingest \
               -H "Content-Type: application/json" \
-              -d '{}')
+              -d '{}' || echo "000")
             if [ "$http_code" != "000" ]; then
               echo "Backend ready (HTTP $http_code)"
               break
