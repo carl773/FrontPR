@@ -69,10 +69,27 @@ runs:
 
         http_code=$(echo "$response" | tail -1)
         body=$(echo "$response" | head -n -1)
-        echo "HTTP Status: $http_code"
-        echo "Response: $body"
 
         if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-          echo "Backend returned non-2xx status ($http_code) — failing step"
+          echo "Backend returned non-2xx status ($http_code)"
+          echo "Response: $body"
+          exit 1
+        fi
+
+        status=$(echo "$body" | jq -r '.status // "unknown"')
+        finding_count=$(echo "$body" | jq -r '.findingCount // "?"')
+        message=$(echo "$body" | jq -r '.message // ""')
+
+        echo ""
+        echo "==============================="
+        echo "  FrontPR Scan Result"
+        echo "==============================="
+        echo "  Status:   $status"
+        echo "  Findings: $finding_count"
+        echo "  Message:  $message"
+        echo "==============================="
+        echo ""
+
+        if [ "$status" = "fail" ]; then
           exit 1
         fi
