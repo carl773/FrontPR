@@ -51,6 +51,10 @@ The raw .NET backend owns:
 
 The GitHub Action should call the .NET backend, not Xano directly.
 
+## Documentation
+
+- [Customer installation guide](docs/customer-installation.md) — how to add FrontPR to your own repository
+
 ## Current priority
 
 Build the first vertical slice:
