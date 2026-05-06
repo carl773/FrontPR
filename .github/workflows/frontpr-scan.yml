@@ -1,0 +1,34 @@
+name: FrontPR Scan
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  scan:
+    name: Run Fake Scanner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scanner/package-lock.json
+
+      - name: Install scanner dependencies
+        working-directory: scanner
+        run: npm ci
+
+      - name: Run scanner
+        working-directory: scanner
+        run: npm run scan -- --url https://example.com
+
+      - name: Print scanner output
+        run: cat scanner/scanner-output.json
