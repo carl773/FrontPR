@@ -41,11 +41,21 @@ runs:
         TARGET_URL: ${{ inputs.target_url }}
       run: npm run scan -- --url "$TARGET_URL"
 
-    - name: Print scanner output
+    - name: Print findings summary
       shell: bash
       run: |
-        echo "=== scanner-output.json ==="
-        cat "${{ github.workspace }}/scanner/scanner-output.json"
+        jq -r '
+          "Target:   " + .targetUrl,
+          "Findings: " + (.findings | length | tostring),
+          "",
+          (.findings[:10][] |
+            "[\(.severity | ascii_upcase)] \(.ruleId)",
+            "  Title:  \(.title)",
+            "  Desc:   \(.description)",
+            "  Target: \(.filePath // "n/a")",
+            ""
+          )
+        ' "${{ github.workspace }}/scanner/scanner-output.json"
 
     - name: POST scan results to backend
       if: ${{ inputs.backend_url != '' }}
