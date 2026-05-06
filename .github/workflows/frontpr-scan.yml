@@ -9,7 +9,7 @@ on:
 
 jobs:
   scan:
-    name: Run Fake Scanner
+    name: Run Scanner
     runs-on: ubuntu-latest
 
     steps:
@@ -26,6 +26,10 @@ jobs:
       - name: Install scanner dependencies
         working-directory: scanner
         run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: scanner
+        run: npx playwright install --with-deps chromium
 
       - name: Run scanner
         working-directory: scanner

@@ -1,5 +1,20 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
+import { chromium } from "playwright";
+import AxeBuilder from "@axe-core/playwright";
+
+interface Finding {
+  category: string;
+  severity: string;
+  ruleId: string;
+  title: string;
+  description: string;
+  filePath: string;
+  lineNumber: number | null;
+  fingerprint: string;
+  rawPayload: unknown;
+}
 
 function parseArgs(): { url: string } {
   const args = process.argv.slice(2);
@@ -11,49 +26,80 @@ function parseArgs(): { url: string } {
   return { url: args[urlIndex + 1] };
 }
 
-function run() {
+async function run(): Promise<void> {
   const { url } = parseArgs();
 
+  const projectId = process.env.FRONTPR_PROJECT_ID ?? "unknown";
+  const repository = process.env.GITHUB_REPOSITORY ?? "unknown/unknown";
+  const commitSha = process.env.GITHUB_SHA ?? "unknown";
+  const pullRequestNumber = parseInt(process.env.GITHUB_PR_NUMBER ?? "0", 10);
+
+  console.log("FrontPR scanner v0.1.0");
+  console.log(`Target URL: ${url}`);
+  console.log("Launching browser...");
+
+  const browser = await chromium.launch();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto(url, { waitUntil: "networkidle" });
+
+  console.log("Running axe accessibility checks...");
+  const results = await new AxeBuilder({ page }).analyze();
+  await browser.close();
+
+  const findings: Finding[] = results.violations.flatMap((violation) =>
+    violation.nodes.map((node) => {
+      const target = node.target.join(" ");
+      const fingerprint = crypto
+        .createHash("sha256")
+        .update(`${violation.id}:${target}`)
+        .digest("hex")
+        .slice(0, 16);
+
+      return {
+        category: "accessibility",
+        severity: violation.impact ?? "minor",
+        ruleId: violation.id,
+        title: violation.description,
+        description: violation.help,
+        filePath: target,
+        lineNumber: null,
+        fingerprint,
+        rawPayload: {
+          violation: {
+            id: violation.id,
+            impact: violation.impact,
+            tags: violation.tags,
+            helpUrl: violation.helpUrl,
+          },
+          node: {
+            html: node.html,
+            target: node.target,
+            failureSummary: node.failureSummary ?? "",
+          },
+        },
+      };
+    })
+  );
+
   const output = {
-    projectId: "fake-project-001",
-    repository: "owner/repo",
-    commitSha: "abc1234567890",
-    pullRequestNumber: 1,
+    projectId,
+    repository,
+    commitSha,
+    pullRequestNumber,
     scannerVersion: "0.1.0",
     targetUrl: url,
-    findings: [
-      {
-        category: "accessibility",
-        severity: "serious",
-        ruleId: "color-contrast",
-        title: "Element has insufficient color contrast",
-        description: "Text contrast does not meet WCAG requirements",
-        filePath: "src/App.tsx",
-        lineNumber: 42,
-        fingerprint: "fake-fingerprint-001",
-        rawPayload: {},
-      },
-      {
-        category: "compliance",
-        severity: "moderate",
-        ruleId: "missing-privacy-link",
-        title: "Privacy policy link not found",
-        description: "No privacy policy link detected on the page",
-        filePath: "src/App.tsx",
-        lineNumber: 10,
-        fingerprint: "fake-fingerprint-002",
-        rawPayload: {},
-      },
-    ],
+    findings,
   };
 
   const outputPath = path.resolve("scanner-output.json");
   fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
 
-  console.log(`FrontPR scanner v${output.scannerVersion}`);
-  console.log(`Target URL: ${url}`);
-  console.log(`Findings: ${output.findings.length}`);
+  console.log(`Findings: ${findings.length}`);
   console.log(`Output written to: ${outputPath}`);
 }
 
-run();
+run().catch((err) => {
+  console.error("Scanner failed:", err);
+  process.exit(1);
+});
