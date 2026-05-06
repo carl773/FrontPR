@@ -29,6 +29,11 @@ runs:
       working-directory: ${{ github.workspace }}/scanner
       run: npm ci
 
+    - name: Install Playwright browsers
+      shell: bash
+      working-directory: ${{ github.workspace }}/scanner
+      run: npx playwright install --with-deps chromium
+
     - name: Run scanner
       shell: bash
       working-directory: ${{ github.workspace }}/scanner
