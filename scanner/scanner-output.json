@@ -1,0 +1,32 @@
+{
+  "projectId": "fake-project-001",
+  "repository": "owner/repo",
+  "commitSha": "abc1234567890",
+  "pullRequestNumber": 1,
+  "scannerVersion": "0.1.0",
+  "targetUrl": "https://example.com",
+  "findings": [
+    {
+      "category": "accessibility",
+      "severity": "serious",
+      "ruleId": "color-contrast",
+      "title": "Element has insufficient color contrast",
+      "description": "Text contrast does not meet WCAG requirements",
+      "filePath": "src/App.tsx",
+      "lineNumber": 42,
+      "fingerprint": "fake-fingerprint-001",
+      "rawPayload": {}
+    },
+    {
+      "category": "compliance",
+      "severity": "moderate",
+      "ruleId": "missing-privacy-link",
+      "title": "Privacy policy link not found",
+      "description": "No privacy policy link detected on the page",
+      "filePath": "src/App.tsx",
+      "lineNumber": 10,
+      "fingerprint": "fake-fingerprint-002",
+      "rawPayload": {}
+    }
+  ]
+}
