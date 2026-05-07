@@ -13,22 +13,20 @@ runs:
       uses: actions/setup-node@v4
       with:
         node-version: '22'
-        cache: 'npm'
-        cache-dependency-path: ${{ github.workspace }}/scanner/package-lock.json
 
     - name: Install scanner dependencies
       shell: bash
-      working-directory: ${{ github.workspace }}/scanner
+      working-directory: ${{ github.action_path }}/../scanner
       run: npm ci
 
     - name: Install Playwright browsers
       shell: bash
-      working-directory: ${{ github.workspace }}/scanner
+      working-directory: ${{ github.action_path }}/../scanner
       run: npx playwright install --with-deps chromium
 
     - name: Run scanner
       shell: bash
-      working-directory: ${{ github.workspace }}/scanner
+      working-directory: ${{ github.action_path }}/../scanner
       env:
         TARGET_URL: ${{ inputs.target_url }}
       run: npm run scan -- --url "$TARGET_URL"
@@ -42,4 +40,4 @@ runs:
         REPO: ${{ github.repository }}
       run: |
         bash ${{ github.action_path }}/post-comment.sh \
-          ${{ github.workspace }}/scanner/scanner-output.json
+          ${{ github.action_path }}/../scanner/scanner-output.json
