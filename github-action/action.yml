@@ -1,18 +1,10 @@
 name: 'FrontPR Scanner'
-description: 'Runs the FrontPR accessibility and compliance scanner and optionally posts results to the backend'
+description: 'Scans a URL for accessibility issues using Playwright and axe-core'
 
 inputs:
   target_url:
     description: 'The URL to scan'
     required: true
-  backend_url:
-    description: 'Backend URL to POST scan results to (omit to skip posting)'
-    required: false
-    default: ''
-  api_token:
-    description: 'Bearer token for backend authentication'
-    required: false
-    default: ''
 
 runs:
   using: 'composite'
@@ -56,50 +48,3 @@ runs:
             ""
           )
         ' "${{ github.workspace }}/scanner/scanner-output.json"
-
-    - name: POST scan results to backend
-      if: ${{ inputs.backend_url != '' }}
-      shell: bash
-      env:
-        BACKEND_URL: ${{ inputs.backend_url }}
-        API_TOKEN: ${{ inputs.api_token }}
-      run: |
-        if [ -n "$API_TOKEN" ]; then
-          response=$(curl -s -w "\n%{http_code}" \
-            -X POST "${BACKEND_URL}/api/scans/ingest" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $API_TOKEN" \
-            -d @"${{ github.workspace }}/scanner/scanner-output.json")
-        else
-          response=$(curl -s -w "\n%{http_code}" \
-            -X POST "${BACKEND_URL}/api/scans/ingest" \
-            -H "Content-Type: application/json" \
-            -d @"${{ github.workspace }}/scanner/scanner-output.json")
-        fi
-
-        http_code=$(echo "$response" | tail -1)
-        body=$(echo "$response" | head -n -1)
-
-        if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
-          echo "Backend returned non-2xx status ($http_code)"
-          echo "Response: $body"
-          exit 1
-        fi
-
-        status=$(echo "$body" | jq -r '.status // "unknown"')
-        finding_count=$(echo "$body" | jq -r '.findingCount // "?"')
-        message=$(echo "$body" | jq -r '.message // ""')
-
-        echo ""
-        echo "==============================="
-        echo "  FrontPR Scan Result"
-        echo "==============================="
-        echo "  Status:   $status"
-        echo "  Findings: $finding_count"
-        echo "  Message:  $message"
-        echo "==============================="
-        echo ""
-
-        if [ "$status" = "fail" ]; then
-          exit 1
-        fi
