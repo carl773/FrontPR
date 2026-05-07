@@ -34,58 +34,12 @@ runs:
       run: npm run scan -- --url "$TARGET_URL"
 
     - name: Post PR comment
-      if: ${{ github.event_name == 'pull_request' }}
+      if: github.event_name == 'pull_request'
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
-        OUTPUT_FILE: ${{ github.workspace }}/scanner/scanner-output.json
       run: |
-        TARGET=$(jq -r '.targetUrl' "$OUTPUT_FILE")
-        COUNT=$(jq -r '.findings | length' "$OUTPUT_FILE")
-
-        if [ "$COUNT" -eq 0 ]; then
-          BODY="## ✅ FrontPR Accessibility Scan
-
-**Target:** $TARGET
-
-No accessibility issues found. All clear!"
-        else
-          ROWS=$(jq -r '
-            .findings[:10][] |
-            "| " + (
-              if .severity == "critical" then "🔴 Critical"
-              elif .severity == "serious" then "🟠 Serious"
-              elif .severity == "moderate" then "🟡 Moderate"
-              else "🔵 Minor"
-              end
-            ) + " | `" + .ruleId + "` | " + .description + " |"
-          ' "$OUTPUT_FILE")
-
-          if [ "$COUNT" -gt 10 ]; then
-            EXTRA="
-> Showing 10 of $COUNT issues."
-          else
-            EXTRA=""
-          fi
-
-          BODY="## ⚠️ FrontPR Accessibility Scan
-
-**Target:** $TARGET
-**Issues found:** $COUNT
-
-| Severity | Rule | What to fix |
-|---|---|---|
-$ROWS
-$EXTRA
-
----
-*Powered by [FrontPR](https://github.com/$REPO)*"
-        fi
-
-        curl -s -X POST \
-          -H "Authorization: Bearer $GH_TOKEN" \
-          -H "Content-Type: application/json" \
-          "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
-          -d "$(jq -n --arg body "$BODY" '{body: $body}')"
+        bash ${{ github.action_path }}/post-comment.sh \
+          ${{ github.workspace }}/scanner/scanner-output.json
