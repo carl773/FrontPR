@@ -29,6 +29,7 @@ runs:
       working-directory: ${{ github.action_path }}/../scanner
       env:
         TARGET_URL: ${{ inputs.target_url }}
+        GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: npm run scan -- --url "$TARGET_URL"
 
     - name: Post PR comment
