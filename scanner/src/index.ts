@@ -6,6 +6,8 @@ import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 
 const SCANNER_VERSION = "0.1.0";
+const XANO_HOST = "xnbe-j9zq-8ibd.f2.xano.io";
+const XANO_API  = "/api:whaFBXbn:dEV";
 
 interface Finding {
   category: string;
@@ -18,16 +20,37 @@ interface Finding {
   rawPayload: unknown;
 }
 
-interface DiffSummary {
-  has_previous: boolean;
-  new_count: number;
-  fixed_count: number;
-  persisting_count: number;
+interface LintFinding {
+  filePath: string;
+  line: number;
+  column: number;
+  severity: "error" | "warning";
+  ruleId: string;
+  message: string;
+}
+
+interface LintOutput {
+  errorCount: number;
+  warningCount: number;
+  findings: LintFinding[];
 }
 
 interface SubmitResponse {
   scan_id: number;
-  diff: DiffSummary;
+  status: string;
+  lint_findings_saved: number;
+}
+
+interface RuntimeResponse {
+  scan_id: number;
+  status: string;
+  total_findings: number;
+  diff: {
+    has_previous: boolean;
+    new_count: number;
+    fixed_count: number;
+    persisting_count: number;
+  };
 }
 
 function parseArgs(): { url: string } {
@@ -49,13 +72,11 @@ function validateUrl(raw: string): void {
     process.exit(1);
   }
 
-  // Only allow http and https — block file://, data://, ftp://, etc.
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     console.error(`Blocked: only http/https URLs are allowed (got ${parsed.protocol})`);
     process.exit(1);
   }
 
-  // Block private/internal IP ranges (SSRF protection)
   const hostname = parsed.hostname;
   const privatePatterns = [
     /^localhost$/i,
@@ -64,10 +85,10 @@ function validateUrl(raw: string): void {
     /^10\./,
     /^172\.(1[6-9]|2[0-9]|3[01])\./,
     /^192\.168\./,
-    /^169\.254\./, // link-local (AWS IMDS etc.)
-    /^::1$/,       // IPv6 loopback
-    /^fc00:/i,     // IPv6 unique local
-    /^fe80:/i,     // IPv6 link-local
+    /^169\.254\./,
+    /^::1$/,
+    /^fc00:/i,
+    /^fe80:/i,
   ];
 
   for (const pattern of privatePatterns) {
@@ -78,11 +99,11 @@ function validateUrl(raw: string): void {
   }
 }
 
-async function submitToXano(payload: object): Promise<SubmitResponse | null> {
+function xanoPost<T>(apiPath: string, payload: object): Promise<T | null> {
   const apiKey = process.env.FRONTPR_API_KEY;
   if (!apiKey) {
     console.warn("FRONTPR_API_KEY not set — skipping Xano submission.");
-    return null;
+    return Promise.resolve(null);
   }
 
   const body = JSON.stringify(payload);
@@ -90,8 +111,8 @@ async function submitToXano(payload: object): Promise<SubmitResponse | null> {
   return new Promise((resolve) => {
     const req = https.request(
       {
-        hostname: "xnbe-j9zq-8ibd.f2.xano.io",
-        path: "/api:whaFBXbn:dEV/scan/submit",
+        hostname: XANO_HOST,
+        path: `${XANO_API}${apiPath}`,
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -103,12 +124,9 @@ async function submitToXano(payload: object): Promise<SubmitResponse | null> {
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            const parsed = JSON.parse(data) as SubmitResponse;
-            console.log(`Xano: scan saved (scan_id: ${parsed.scan_id})`);
-            resolve(parsed);
+            resolve(JSON.parse(data) as T);
           } else {
-            // Log only the status code — never log response body (may echo request data)
-            console.error(`Xano submission failed with status: ${res.statusCode}`);
+            console.error(`Xano POST ${apiPath} failed with status: ${res.statusCode}`);
             resolve(null);
           }
         });
@@ -116,13 +134,47 @@ async function submitToXano(payload: object): Promise<SubmitResponse | null> {
     );
 
     req.on("error", (err) => {
-      console.error(`Xano submission error: ${err.message}`);
+      console.error(`Xano request error (${apiPath}): ${err.message}`);
       resolve(null);
     });
 
     req.write(body);
     req.end();
   });
+}
+
+/** Read lint-output.json written by lint.ts (runs before this script) */
+function readLintOutput(): LintOutput {
+  const lintPath = path.resolve("lint-output.json");
+  if (!fs.existsSync(lintPath)) {
+    console.warn("lint-output.json not found — skipping static findings.");
+    return { errorCount: 0, warningCount: 0, findings: [] };
+  }
+  try {
+    return JSON.parse(fs.readFileSync(lintPath, "utf8")) as LintOutput;
+  } catch {
+    console.warn("Failed to parse lint-output.json — skipping static findings.");
+    return { errorCount: 0, warningCount: 0, findings: [] };
+  }
+}
+
+/** Convert LintFinding → payload shape the scan/submit endpoint expects */
+function lintFindingToPayload(f: LintFinding) {
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(`eslint:${f.ruleId}:${f.filePath}:${f.line}`)
+    .digest("hex")
+    .slice(0, 32);
+
+  return {
+    severity: f.severity === "error" ? "serious" : "minor",
+    ruleId: f.ruleId,
+    message: f.message,
+    filePath: f.filePath,
+    line: f.line,
+    column: f.column,
+    fingerprint,
+  };
 }
 
 async function run(): Promise<void> {
@@ -136,8 +188,33 @@ async function run(): Promise<void> {
 
   console.log(`FrontPR scanner v${SCANNER_VERSION}`);
   console.log(`Target URL: ${url}`);
-  console.log("Launching browser...");
 
+  // ── Phase 1: Submit static (eslint) findings ──────────────────────────────
+  const lintOutput = readLintOutput();
+  const lintPayload = lintOutput.findings.map(lintFindingToPayload);
+
+  console.log(`Static findings: ${lintOutput.errorCount} error(s), ${lintOutput.warningCount} warning(s)`);
+  console.log("Submitting static findings to Xano (Phase 1)...");
+
+  const submitResult = await xanoPost<SubmitResponse>("/scan/submit", {
+    api_key: apiKey,
+    repository,
+    pull_request_number: pullRequestNumber,
+    commit_sha: commitSha,
+    target_url: url,
+    scanner_version: SCANNER_VERSION,
+    lint_findings: lintPayload,
+  });
+
+  const scanId = submitResult?.scan_id ?? null;
+  if (scanId) {
+    console.log(`Xano: scan created (scan_id: ${scanId}, status: pending_runtime)`);
+  } else {
+    console.warn("Xano: Phase 1 submission failed — continuing with runtime scan.");
+  }
+
+  // ── Phase 2: Run axe-core and submit runtime findings ────────────────────
+  console.log("Launching browser...");
   const browser = await chromium.launch();
   const context = await browser.newContext();
   const page    = await context.newPage();
@@ -181,17 +258,28 @@ async function run(): Promise<void> {
     })
   );
 
-  console.log("Submitting scan to Xano...");
-  const xanoResult = await submitToXano({
-    api_key: apiKey,
-    repository,
-    pull_request_number: pullRequestNumber,
-    commit_sha: commitSha,
-    target_url: url,
-    scanner_version: SCANNER_VERSION,
-    findings,
-  });
+  console.log(`Runtime findings: ${findings.length}`);
 
+  let runtimeResult: RuntimeResponse | null = null;
+
+  if (scanId) {
+    console.log("Submitting runtime findings to Xano (Phase 2)...");
+    runtimeResult = await xanoPost<RuntimeResponse>(`/scan/${scanId}/runtime`, {
+      api_key: apiKey,
+      scan_id: scanId,
+      findings,
+    });
+
+    if (runtimeResult) {
+      console.log(`Xano: scan complete (total_findings: ${runtimeResult.total_findings})`);
+      if (runtimeResult.diff?.has_previous) {
+        const d = runtimeResult.diff;
+        console.log(`Diff: +${d.new_count} new, -${d.fixed_count} fixed, ${d.persisting_count} persisting`);
+      }
+    }
+  }
+
+  // ── Write scanner-output.json for post-comment.sh ─────────────────────────
   const outputPath = path.resolve("scanner-output.json");
   fs.writeFileSync(outputPath, JSON.stringify({
     repository,
@@ -199,15 +287,11 @@ async function run(): Promise<void> {
     pullRequestNumber,
     scannerVersion: SCANNER_VERSION,
     targetUrl: url,
-    scanId: xanoResult?.scan_id ?? null,
+    scanId,
     findings,
-    diff: xanoResult?.diff ?? null,
+    diff: runtimeResult?.diff ?? null,
   }, null, 2));
 
-  console.log(`Findings: ${findings.length}`);
-  if (xanoResult?.diff?.has_previous) {
-    console.log(`Diff: +${xanoResult.diff.new_count} new, -${xanoResult.diff.fixed_count} fixed, ${xanoResult.diff.persisting_count} persisting`);
-  }
   console.log(`Output written to: ${outputPath}`);
 }
 
