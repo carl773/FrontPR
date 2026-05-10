@@ -27,6 +27,44 @@ function parseArgs(): { url: string } {
   return { url: args[urlIndex + 1] };
 }
 
+function validateUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    console.error(`Invalid target URL: ${raw}`);
+    process.exit(1);
+  }
+
+  // Only allow http and https — block file://, data://, ftp://, etc.
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    console.error(`Blocked: only http/https URLs are allowed (got ${parsed.protocol})`);
+    process.exit(1);
+  }
+
+  // Block private/internal IP ranges (SSRF protection)
+  const hostname = parsed.hostname;
+  const privatePatterns = [
+    /^localhost$/i,
+    /^127\./,
+    /^0\.0\.0\.0$/,
+    /^10\./,
+    /^172\.(1[6-9]|2[0-9]|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./, // link-local (AWS IMDS etc.)
+    /^::1$/,       // IPv6 loopback
+    /^fc00:/i,     // IPv6 unique local
+    /^fe80:/i,     // IPv6 link-local
+  ];
+
+  for (const pattern of privatePatterns) {
+    if (pattern.test(hostname)) {
+      console.error(`Blocked: target URL points to a private/internal address (${hostname})`);
+      process.exit(1);
+    }
+  }
+}
+
 async function submitToXano(payload: object): Promise<void> {
   const apiKey = process.env.FRONTPR_API_KEY;
   if (!apiKey) {
@@ -78,6 +116,7 @@ async function submitToXano(payload: object): Promise<void> {
 
 async function run(): Promise<void> {
   const { url } = parseArgs();
+  validateUrl(url);
 
   const apiKey     = process.env.FRONTPR_API_KEY ?? "";
   const repository = process.env.GITHUB_REPOSITORY ?? "unknown/unknown";
