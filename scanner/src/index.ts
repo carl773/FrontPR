@@ -18,6 +18,18 @@ interface Finding {
   rawPayload: unknown;
 }
 
+interface DiffSummary {
+  has_previous: boolean;
+  new_count: number;
+  fixed_count: number;
+  persisting_count: number;
+}
+
+interface SubmitResponse {
+  scan_id: number;
+  diff: DiffSummary;
+}
+
 function parseArgs(): { url: string } {
   const args = process.argv.slice(2);
   const urlIndex = args.indexOf("--url");
@@ -66,11 +78,11 @@ function validateUrl(raw: string): void {
   }
 }
 
-async function submitToXano(payload: object): Promise<void> {
+async function submitToXano(payload: object): Promise<SubmitResponse | null> {
   const apiKey = process.env.FRONTPR_API_KEY;
   if (!apiKey) {
     console.warn("FRONTPR_API_KEY not set — skipping Xano submission.");
-    return;
+    return null;
   }
 
   const body = JSON.stringify(payload);
@@ -91,13 +103,13 @@ async function submitToXano(payload: object): Promise<void> {
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-            const parsed = JSON.parse(data);
+            const parsed = JSON.parse(data) as SubmitResponse;
             console.log(`Xano: scan saved (scan_id: ${parsed.scan_id})`);
-            resolve();
+            resolve(parsed);
           } else {
             // Log only the status code — never log response body (may echo request data)
             console.error(`Xano submission failed with status: ${res.statusCode}`);
-            resolve();
+            resolve(null);
           }
         });
       }
@@ -105,7 +117,7 @@ async function submitToXano(payload: object): Promise<void> {
 
     req.on("error", (err) => {
       console.error(`Xano submission error: ${err.message}`);
-      resolve();
+      resolve(null);
     });
 
     req.write(body);
@@ -169,21 +181,8 @@ async function run(): Promise<void> {
     })
   );
 
-  const outputPath = path.resolve("scanner-output.json");
-  fs.writeFileSync(outputPath, JSON.stringify({
-    repository,
-    commitSha,
-    pullRequestNumber,
-    scannerVersion: SCANNER_VERSION,
-    targetUrl: url,
-    findings,
-  }, null, 2));
-
-  console.log(`Findings: ${findings.length}`);
-  console.log(`Output written to: ${outputPath}`);
-
   console.log("Submitting scan to Xano...");
-  await submitToXano({
+  const xanoResult = await submitToXano({
     api_key: apiKey,
     repository,
     pull_request_number: pullRequestNumber,
@@ -192,6 +191,24 @@ async function run(): Promise<void> {
     scanner_version: SCANNER_VERSION,
     findings,
   });
+
+  const outputPath = path.resolve("scanner-output.json");
+  fs.writeFileSync(outputPath, JSON.stringify({
+    repository,
+    commitSha,
+    pullRequestNumber,
+    scannerVersion: SCANNER_VERSION,
+    targetUrl: url,
+    scanId: xanoResult?.scan_id ?? null,
+    findings,
+    diff: xanoResult?.diff ?? null,
+  }, null, 2));
+
+  console.log(`Findings: ${findings.length}`);
+  if (xanoResult?.diff?.has_previous) {
+    console.log(`Diff: +${xanoResult.diff.new_count} new, -${xanoResult.diff.fixed_count} fixed, ${xanoResult.diff.persisting_count} persisting`);
+  }
+  console.log(`Output written to: ${outputPath}`);
 }
 
 run().catch((err) => {
