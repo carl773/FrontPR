@@ -56,7 +56,8 @@ async function submitToXano(payload: object): Promise<void> {
             console.log(`Xano: scan saved (scan_id: ${parsed.scan_id})`);
             resolve();
           } else {
-            console.error(`Xano submission failed: ${res.statusCode} ${data}`);
+            // Log only the status code — never log response body (may echo request data)
+            console.error(`Xano submission failed with status: ${res.statusCode}`);
             // Don't fail the action if Xano is unreachable
             resolve();
           }
