@@ -3,11 +3,15 @@ description: 'Scans for accessibility issues — static (eslint) + runtime (axe-
 
 inputs:
   target_url:
-    description: 'The URL to scan with axe-core'
+    description: 'Fallback URL to scan if no preview URL is detected (typically your production URL)'
     required: true
   api_key:
     description: 'Your FrontPR API key (store as a GitHub Secret)'
     required: true
+  preview_url:
+    description: 'Optional: manually specify the preview URL to scan (for AWS, custom hosts etc)'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -41,7 +45,10 @@ runs:
       working-directory: ${{ github.action_path }}/../scanner
       env:
         FRONTPR_API_KEY: ${{ inputs.api_key }}
+        FRONTPR_TARGET_URL: ${{ inputs.target_url }}
+        FRONTPR_PREVIEW_URL: ${{ inputs.preview_url }}
         GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: npm run scan -- --url "${{ inputs.target_url }}"
 
     - name: Post results
