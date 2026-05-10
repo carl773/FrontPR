@@ -5,6 +5,8 @@ import https from "https";
 import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 
+const SCANNER_VERSION = "0.1.0";
+
 interface Finding {
   category: string;
   severity: string;
@@ -12,7 +14,6 @@ interface Finding {
   title: string;
   description: string;
   filePath: string;
-  lineNumber: number | null;
   fingerprint: string;
   rawPayload: unknown;
 }
@@ -74,7 +75,7 @@ async function submitToXano(payload: object): Promise<void> {
 
   const body = JSON.stringify(payload);
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const req = https.request(
       {
         hostname: "xnbe-j9zq-8ibd.f2.xano.io",
@@ -96,7 +97,6 @@ async function submitToXano(payload: object): Promise<void> {
           } else {
             // Log only the status code — never log response body (may echo request data)
             console.error(`Xano submission failed with status: ${res.statusCode}`);
-            // Don't fail the action if Xano is unreachable
             resolve();
           }
         });
@@ -105,7 +105,6 @@ async function submitToXano(payload: object): Promise<void> {
 
     req.on("error", (err) => {
       console.error(`Xano submission error: ${err.message}`);
-      // Don't fail the action if Xano is unreachable
       resolve();
     });
 
@@ -118,18 +117,18 @@ async function run(): Promise<void> {
   const { url } = parseArgs();
   validateUrl(url);
 
-  const apiKey     = process.env.FRONTPR_API_KEY ?? "";
-  const repository = process.env.GITHUB_REPOSITORY ?? "unknown/unknown";
-  const commitSha  = process.env.GITHUB_SHA ?? "unknown";
+  const apiKey            = process.env.FRONTPR_API_KEY ?? "";
+  const repository        = process.env.GITHUB_REPOSITORY ?? "unknown/unknown";
+  const commitSha         = process.env.GITHUB_SHA ?? "unknown";
   const pullRequestNumber = parseInt(process.env.GITHUB_PR_NUMBER ?? "0", 10);
 
-  console.log("FrontPR scanner v0.1.0");
+  console.log(`FrontPR scanner v${SCANNER_VERSION}`);
   console.log(`Target URL: ${url}`);
   console.log("Launching browser...");
 
   const browser = await chromium.launch();
   const context = await browser.newContext();
-  const page = await context.newPage();
+  const page    = await context.newPage();
   await page.goto(url, { waitUntil: "networkidle" });
 
   console.log("Running axe accessibility checks...");
@@ -138,7 +137,7 @@ async function run(): Promise<void> {
 
   const findings: Finding[] = results.violations.flatMap((violation) =>
     violation.nodes.map((node) => {
-      const target = node.target.join(" ");
+      const target      = node.target.join(" ");
       const fingerprint = crypto
         .createHash("sha256")
         .update(`${violation.id}:${target}`)
@@ -152,7 +151,6 @@ async function run(): Promise<void> {
         title: violation.description,
         description: violation.help,
         filePath: target,
-        lineNumber: null,
         fingerprint,
         rawPayload: {
           violation: {
@@ -171,22 +169,19 @@ async function run(): Promise<void> {
     })
   );
 
-  const output = {
+  const outputPath = path.resolve("scanner-output.json");
+  fs.writeFileSync(outputPath, JSON.stringify({
     repository,
     commitSha,
     pullRequestNumber,
-    scannerVersion: "0.1.0",
+    scannerVersion: SCANNER_VERSION,
     targetUrl: url,
     findings,
-  };
-
-  const outputPath = path.resolve("scanner-output.json");
-  fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
+  }, null, 2));
 
   console.log(`Findings: ${findings.length}`);
   console.log(`Output written to: ${outputPath}`);
 
-  // Submit to Xano
   console.log("Submitting scan to Xano...");
   await submitToXano({
     api_key: apiKey,
@@ -194,7 +189,7 @@ async function run(): Promise<void> {
     pull_request_number: pullRequestNumber,
     commit_sha: commitSha,
     target_url: url,
-    scanner_version: "0.1.0",
+    scanner_version: SCANNER_VERSION,
     findings,
   });
 }
