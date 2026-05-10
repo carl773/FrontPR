@@ -1,7 +1,33 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+# ============================================================
+# Input validation — guard against injection via env vars
+# ============================================================
 
 OUTPUT_FILE="$1"
+
+# Validate output file exists and is a regular file
+if [ ! -f "$OUTPUT_FILE" ]; then
+  echo "Error: scanner output file not found: $OUTPUT_FILE" >&2
+  exit 1
+fi
+
+# Validate REPO matches expected "owner/repo" format (alphanumeric, dash, dot, underscore only)
+if ! echo "$REPO" | grep -qE '^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$'; then
+  echo "Error: REPO has unexpected format: $REPO" >&2
+  exit 1
+fi
+
+# Validate PR_NUMBER is a positive integer
+if ! echo "$PR_NUMBER" | grep -qE '^[0-9]+$'; then
+  echo "Error: PR_NUMBER is not a valid integer: $PR_NUMBER" >&2
+  exit 1
+fi
+
+# ============================================================
+# Build comment body
+# ============================================================
 
 TARGET=$(jq -r '.targetUrl' "$OUTPUT_FILE")
 COUNT=$(jq -r '.findings | length' "$OUTPUT_FILE")
@@ -30,8 +56,14 @@ else
     "$TARGET" "$COUNT" "$ROWS" "$EXTRA")
 fi
 
+# ============================================================
+# Post comment — URL built from validated variables only
+# ============================================================
+
+API_URL="https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments"
+
 curl -s -X POST \
   -H "Authorization: Bearer $GH_TOKEN" \
   -H "Content-Type: application/json" \
-  "https://api.github.com/repos/$REPO/issues/$PR_NUMBER/comments" \
+  "$API_URL" \
   -d "$(jq -n --arg body "$BODY" '{body: $body}')"
