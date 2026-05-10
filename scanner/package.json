@@ -5,16 +5,21 @@
   "main": "dist/index.js",
   "scripts": {
     "scan": "ts-node src/index.ts",
+    "lint-a11y": "ts-node src/lint.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.10.1",
+    "@typescript-eslint/parser": "^8.59.2",
+    "eslint": "^8.57.1",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "playwright": "^1.50.0"
   },
   "devDependencies": {
-    "typescript": "^5.4.0",
+    "@types/eslint": "^9.6.1",
+    "@types/node": "^22.0.0",
     "ts-node": "^10.9.2",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.4.0"
   }
 }

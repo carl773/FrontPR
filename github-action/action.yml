@@ -1,9 +1,9 @@
 name: 'FrontPR Scanner'
-description: 'Scans a URL for accessibility issues using Playwright and axe-core'
+description: 'Scans for accessibility issues — static (eslint) + runtime (axe-core)'
 
 inputs:
   target_url:
-    description: 'The URL to scan'
+    description: 'The URL to scan with axe-core'
     required: true
   api_key:
     description: 'Your FrontPR API key (store as a GitHub Secret)'
@@ -31,16 +31,20 @@ runs:
       working-directory: ${{ github.action_path }}/../scanner
       run: npx playwright install --with-deps chromium
 
-    - name: Run scanner
+    - name: Run static a11y lint (eslint + jsx-a11y)
+      shell: bash
+      working-directory: ${{ github.action_path }}/../scanner
+      run: npm run lint-a11y -- "${{ github.workspace }}"
+
+    - name: Run runtime scanner (axe-core)
       shell: bash
       working-directory: ${{ github.action_path }}/../scanner
       env:
-        TARGET_URL: ${{ inputs.target_url }}
         FRONTPR_API_KEY: ${{ inputs.api_key }}
         GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
-      run: npm run scan -- --url "$TARGET_URL"
+      run: npm run scan -- --url "${{ inputs.target_url }}"
 
-    - name: Post PR comment and check run
+    - name: Post results
       if: github.event_name == 'pull_request'
       shell: bash
       env:
@@ -50,9 +54,12 @@ runs:
         COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
       run: |
         bash "${{ github.action_path }}/post-comment.sh" \
-          "${{ github.action_path }}/../scanner/scanner-output.json"
+          "${{ github.action_path }}/../scanner/scanner-output.json" \
+          "${{ github.action_path }}/../scanner/lint-output.json"
 
     - name: Cleanup
       if: always()
       shell: bash
-      run: rm -f "${{ github.action_path }}/../scanner/scanner-output.json"
+      run: |
+        rm -f "${{ github.action_path }}/../scanner/scanner-output.json"
+        rm -f "${{ github.action_path }}/../scanner/lint-output.json"
