@@ -1,217 +1,143 @@
-# CLAUDE.md
+# FrontPR Scanner & GitHub Action — Claude Guide
 
-This file provides guidance to Claude Code when working in this repository.
+> Se också `S:\FRONTPR\CLAUDE.md` för övergripande projektinfo och Xano-setup.
 
-## Project Overview
+---
 
-FrontPR is a GitHub PR compliance scanner for frontend applications.
+## Vad detta repo innehåller
 
-The goal is to run automated checks during pull requests and return a clear pass/fail result directly in GitHub.
+- **`github-action/`** — GitHub Action-wrapper som kör scannern i CI
+- **`scanner/`** — TypeScript-scanner (ESLint + axe-core via Playwright)
 
-Initial checks:
-- Accessibility issues using Playwright + axe
-- Broken privacy/compliance links
-- Basic frontend compliance risks
-- Later: AI-assisted fix suggestions after user approval
+GitHub: `carl773/FrontPR` (main-branch är live)
 
-## Core Flow
+---
 
-1. Customer installs the FrontPR GitHub Action
-2. GitHub Action runs on pull requests
-3. GitHub Action invokes the scanner
-4. Scanner generates `scanner-output.json`
-5. GitHub Action sends the result to the FrontPR raw backend
-6. Raw backend validates and normalizes the result
-7. Raw backend stores scan runs and findings in Xano
-8. Raw backend returns pass/fail
-9. Raw backend later posts GitHub PR checks/comments
-10. AI fix suggestions are generated only after explicit user approval
+## Scanner — tvåfas-arkitektur
 
-## Monorepo Structure
+Scannern kör i **två faser** för att visa ESLint-resultat snabbt medan axe-core-skanningen pågår:
 
-- `backend/` — C# / ASP.NET Core API
-- `frontend/` — TypeScript / Vite dashboard app
-- `scanner/` — TypeScript Node scanner using Playwright + axe
-- `github-action/` — GitHub Action wrapper that runs the scanner
-- `docs/` — architecture, API contracts, scanner flow, Xano data model
+### Fas 1 — Statisk analys (ESLint, ~5s)
+- Körs via `npm run lint-a11y -- <workspace-dir>`
+- Analyserar JSX/TSX-källkod med `eslint-plugin-jsx-a11y`
+- Skriver `lint-output.json`: `{ errorCount, warningCount, findings[] }`
+- Varje finding har: `filePath`, `line`, `column`, `severity`, `ruleId`, `message`
 
-## Architecture Rules
+### Fas 2 — Runtime-skanning (axe-core, ~60-180s)
+- Körs via `npm run scan -- --url <url>`
+- `index.ts` läser `lint-output.json` (skriven av fas 1)
+- **Fas 2a:** POST `/scan/submit` med lint-fynd → får `scan_id`, scan skapas med `status: pending_runtime`
+- Playwright öppnar Chromium, besöker URL:en
+- axe-core analyserar DOM
+- **Fas 2b:** POST `/scan/{scan_id}/runtime` med axe-fynd → scan uppdateras till `status: complete`, diff beräknas
 
-- TypeScript owns scanner, GitHub Action wrapper, and frontend.
-- C#/.NET owns the raw backend API.
-- Xano stores users, organizations, projects, billing/subscription state, scan runs, scan findings, baselines, and audit logs.
-- Xano should not contain core scanner logic.
-- GitHub Action should not talk directly to Xano long-term.
-- Correct runtime flow is: GitHub Action → .NET backend → Xano.
-- The scanner should produce structured JSON.
-- The scanner should not decide billing, user access, or final business logic.
-- The backend owns validation, normalization, baseline comparison, GitHub PR result logic, and AI fix orchestration.
+---
 
-## Current Build Priority
+## Filstruktur
 
-Build the first vertical slice only:
+```
+FrontPR-repo/
+├── github-action/
+│   ├── action.yml          ← Definierar inputs, steg, cleanup
+│   └── post-comment.sh     ← Postar GitHub Check Runs + PR-kommentar
+└── scanner/
+    ├── package.json
+    └── src/
+        ├── index.ts        ← axe-core scanner + Xano-submission (tvåfas)
+        └── lint.ts         ← ESLint jsx-a11y statisk analys
+```
 
-1. Fake scanner creates `scanner-output.json`
-2. GitHub workflow runs the scanner
-3. Backend receives scanner output
-4. Backend returns pass/fail
-5. Xano integration comes after local flow works
+---
 
-Do not build billing, dashboard polish, AI fix logic, or real Xano integration before the first scanner/backend flow works.
+## action.yml — inputs
 
-## Dev Environment
+| Input | Krav | Beskrivning |
+|-------|------|-------------|
+| `target_url` | Obligatorisk | URL att skanna med axe-core |
+| `api_key` | Obligatorisk | FrontPR API-nyckel (GitHub Secret) |
 
-This project uses a Dev Container with .NET 9 and Node.js 22.
+### Steg i action.yml
+1. Setup Node.js 22
+2. Mask API key i loggar
+3. `npm ci` — installera beroenden
+4. `npx playwright install chromium`
+5. **Run lint** — `npm run lint-a11y -- ${{ github.workspace }}`
+6. **Run scanner** — `npm run scan -- --url ${{ inputs.target_url }}`
+7. **Post results** — `post-comment.sh scanner-output.json lint-output.json`
+8. Cleanup — ta bort output-filer
 
-Expected ports:
-- Backend: `http://localhost:5000`
-- Frontend: `http://localhost:5173`
+---
 
-## Backend Commands
+## post-comment.sh
 
-Use after the backend project has been initialized:
+Tar emot två JSON-filer och skapar:
+
+1. **GitHub Check Run "FrontPR — Static Analysis"**
+   - `failure` om lint errors > 0 (blockerar merge)
+   - `neutral` om bara warnings
+   - Inkluderar file:line-annotationer (max 50)
+
+2. **GitHub Check Run "FrontPR — Runtime Scan"**
+   - Blockerar aldrig — visar diff mot tidigare scan
+   - `success` om inga nya regressions
+   - `neutral` om nya fynd (informationellt)
+
+3. **PR-kommentar** — kombinerar statisk + runtime-sektion
+   - Uppdaterar befintlig kommentar istället för att skapa nya
+   - Identifieras via "Powered by FrontPR"-markör
+
+---
+
+## Miljövariabler i scanner
+
+| Variabel | Källa | Användning |
+|----------|-------|-----------|
+| `FRONTPR_API_KEY` | GitHub Secret | Autentisering mot Xano |
+| `GITHUB_REPOSITORY` | GitHub Actions | `owner/repo`-format |
+| `GITHUB_SHA` | GitHub Actions | Commit SHA (40 hex) |
+| `GITHUB_PR_NUMBER` | Sätts i action.yml | PR-nummer |
+
+---
+
+## Xano API
+
+Scannern pratar med Xano dEV:
+- Host: `xnbe-j9zq-8ibd.f2.xano.io`
+- API-group: `whaFBXbn`
+- `POST /api:whaFBXbn:dEV/scan/submit` — fas 1
+- `POST /api:whaFBXbn:dEV/scan/{id}/runtime` — fas 2
+
+---
+
+## Kommandon
 
 ```bash
-cd backend
-dotnet restore
-dotnet build
-dotnet run
-dotnet test
-Frontend Commands
-
-Use after the frontend project has been initialized:
-
-cd frontend
-npm install
-npm run dev
-npm run build
-npm run lint
-npm test
-Scanner Commands
-
-Use after the scanner project has been initialized:
-
 cd scanner
-npm install
-npm run scan -- --url https://example.com
-GitHub Action
 
-The GitHub Action should run the scanner and send scanner-output.json to the backend.
+# Installera beroenden
+npm ci
 
-Do not send scanner results directly to Xano in the long-term architecture.
+# Kör statisk analys
+npm run lint-a11y -- /path/to/repo
 
-Security Rules
+# Kör runtime-scan
+FRONTPR_API_KEY=xxx GITHUB_REPOSITORY=owner/repo GITHUB_SHA=abc...def npm run scan -- --url https://example.com
 
-Never request, print, or commit production secrets.
+# Bygg TypeScript
+npm run build
+```
 
-Forbidden:
+---
 
-production Xano API keys
-Stripe secret keys
-GitHub App private keys
-customer repo tokens
-real production customer data
-.env files
+## ESLint-regler (jsx-a11y)
 
-Allowed:
+**Errors** (blockerar merge): `alt-text`, `anchor-has-content`, `aria-props`, `aria-proptypes`, `aria-role`, `aria-unsupported-elements`, `heading-has-content`, `interactive-supports-focus`, `label-has-associated-control`, `no-distracting-elements`, `role-has-required-aria-props`, `role-supports-aria-props`, `scope`
 
-.env.example
-fake credentials
-local dev data
-staging/dev Xano schema
-anonymized test payloads
-Editing Rules
+**Warnings** (informationellt): `anchor-is-valid`, `click-events-have-key-events`, `html-has-lang`, `img-redundant-alt`, `no-access-key`, `no-autofocus`, `no-interactive-element-to-noninteractive-role`, `no-noninteractive-element-interactions`, `no-noninteractive-tabindex`, `no-redundant-roles`, `no-static-element-interactions`, `tabindex-no-positive`
 
-Before making changes:
+---
 
-explain intended changes
-keep changes scoped
-avoid touching unrelated folders
-do not rewrite architecture without approval
+## Återstående att bygga
 
-Do not modify:
-
-billing logic unless explicitly requested
-Xano schema unless explicitly approved
-unrelated folders outside the requested scope
-
-Prefer small, focused changes over large rewrites.
-
-Team Workflow
-
-This project is built by two developers using a shared Codespace, Live Share, GitHub branches, and Pull Requests.
-
-GitHub is the source of truth.
-
-Rules:
-
-Do not work directly on main for feature work.
-Use feature branches.
-Keep Pull Requests small.
-Commit after each working milestone.
-Avoid editing the same files at the same time.
-Do not let Claude make broad repo-wide changes unless explicitly approved.
-
-Recommended branch examples:
-
-feature/fake-scanner
-feature/github-action-workflow
-feature/backend-ingest
-feature/xano-client
-Work Ownership
-
-Default ownership:
-
-scanner/ — scanner logic, Playwright, axe, scanner-output generation
-github-action/ — GitHub Action wrapper and CI execution
-backend/ — .NET API, scan ingestion, validation, Xano client, GitHub PR result logic
-frontend/ — dashboard UI
-docs/ — shared contracts and architecture decisions
-
-Shared files that should be changed carefully:
-
-docs/api-contracts.md
-CLAUDE.md
-README.md
-First Milestone
-
-The first working milestone is:
-
-A fake scanner can run from scanner/
-It accepts --url
-It creates scanner-output.json
-GitHub Actions can run the scanner
-The output can be printed in the GitHub Actions logs
-
-No backend, Xano, billing, AI fix, or dashboard work should happen before this scanner/action proof works.
-
-Scanner Output Contract
-
-The scanner should eventually produce JSON shaped like this:
-
-{
-  "projectId": "string",
-  "repository": "owner/repo",
-  "commitSha": "abc123",
-  "pullRequestNumber": 12,
-  "scannerVersion": "0.1.0",
-  "targetUrl": "https://example.com",
-  "findings": [
-    {
-      "category": "accessibility",
-      "severity": "serious",
-      "ruleId": "color-contrast",
-      "title": "Element has insufficient color contrast",
-      "description": "Text contrast does not meet WCAG requirements",
-      "filePath": "src/App.tsx",
-      "lineNumber": 42,
-      "fingerprint": "abc123",
-      "rawPayload": {}
-    }
-  ]
-}
-Important Constraint
-
-Do not overbuild.
-
-FrontPR should be built as a sequence of small vertical slices. Each slice should run, be testable, and be committed before moving to the next one.
+- [ ] **Preview URL-detection** — polla GitHub Deployments API för att hitta rätt preview-URL automatiskt
+- [ ] **`preview_url`-input** — valfri input i `action.yml` för manuell preview-URL
