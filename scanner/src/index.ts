@@ -143,7 +143,7 @@ async function run(): Promise<void> {
         .createHash("sha256")
         .update(`${violation.id}:${target}`)
         .digest("hex")
-        .slice(0, 16);
+        .slice(0, 32);
 
       return {
         category: "accessibility",
