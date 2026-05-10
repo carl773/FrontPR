@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import https from "https";
 import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -26,12 +27,60 @@ function parseArgs(): { url: string } {
   return { url: args[urlIndex + 1] };
 }
 
+async function submitToXano(payload: object): Promise<void> {
+  const apiKey = process.env.FRONTPR_API_KEY;
+  if (!apiKey) {
+    console.warn("FRONTPR_API_KEY not set — skipping Xano submission.");
+    return;
+  }
+
+  const body = JSON.stringify(payload);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "xnbe-j9zq-8ibd.f2.xano.io",
+        path: "/api:whaFBXbn:dEV/scan/submit",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            const parsed = JSON.parse(data);
+            console.log(`Xano: scan saved (scan_id: ${parsed.scan_id})`);
+            resolve();
+          } else {
+            console.error(`Xano submission failed: ${res.statusCode} ${data}`);
+            // Don't fail the action if Xano is unreachable
+            resolve();
+          }
+        });
+      }
+    );
+
+    req.on("error", (err) => {
+      console.error(`Xano submission error: ${err.message}`);
+      // Don't fail the action if Xano is unreachable
+      resolve();
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
 async function run(): Promise<void> {
   const { url } = parseArgs();
 
-  const projectId = process.env.FRONTPR_PROJECT_ID ?? "unknown";
+  const apiKey     = process.env.FRONTPR_API_KEY ?? "";
   const repository = process.env.GITHUB_REPOSITORY ?? "unknown/unknown";
-  const commitSha = process.env.GITHUB_SHA ?? "unknown";
+  const commitSha  = process.env.GITHUB_SHA ?? "unknown";
   const pullRequestNumber = parseInt(process.env.GITHUB_PR_NUMBER ?? "0", 10);
 
   console.log("FrontPR scanner v0.1.0");
@@ -83,7 +132,6 @@ async function run(): Promise<void> {
   );
 
   const output = {
-    projectId,
     repository,
     commitSha,
     pullRequestNumber,
@@ -97,6 +145,18 @@ async function run(): Promise<void> {
 
   console.log(`Findings: ${findings.length}`);
   console.log(`Output written to: ${outputPath}`);
+
+  // Submit to Xano
+  console.log("Submitting scan to Xano...");
+  await submitToXano({
+    api_key: apiKey,
+    repository,
+    pull_request_number: pullRequestNumber,
+    commit_sha: commitSha,
+    target_url: url,
+    scanner_version: "0.1.0",
+    findings,
+  });
 }
 
 run().catch((err) => {

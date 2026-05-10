@@ -5,6 +5,9 @@ inputs:
   target_url:
     description: 'The URL to scan'
     required: true
+  api_key:
+    description: 'Your FrontPR API key (store as a GitHub Secret)'
+    required: true
 
 runs:
   using: 'composite'
@@ -29,6 +32,7 @@ runs:
       working-directory: ${{ github.action_path }}/../scanner
       env:
         TARGET_URL: ${{ inputs.target_url }}
+        FRONTPR_API_KEY: ${{ inputs.api_key }}
         GITHUB_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: npm run scan -- --url "$TARGET_URL"
 
