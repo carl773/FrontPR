@@ -7,7 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 const SCANNER_VERSION = "0.1.0";
 const XANO_HOST = "xnbe-j9zq-8ibd.f2.xano.io";
-const XANO_API  = "/api:aeK-ruu4:dEV";
+const XANO_API  = "/api:aeK-ruu4";
 
 interface Finding {
   category: string;
