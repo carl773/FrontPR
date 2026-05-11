@@ -7,7 +7,7 @@ import AxeBuilder from "@axe-core/playwright";
 
 const SCANNER_VERSION = "0.1.0";
 const XANO_HOST = "xnbe-j9zq-8ibd.f2.xano.io";
-const XANO_API  = "/api:whaFBXbn:dEV";
+const XANO_API  = "/api:aeK-ruu4:dEV";
 
 interface Finding {
   category: string;
@@ -39,6 +39,7 @@ interface SubmitResponse {
   scan_id: number;
   status: string;
   lint_findings_saved: number;
+  share_token: string;
 }
 
 interface RuntimeResponse {
@@ -126,7 +127,7 @@ function xanoPost<T>(apiPath: string, payload: object): Promise<T | null> {
           if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
             resolve(JSON.parse(data) as T);
           } else {
-            console.error(`Xano POST ${apiPath} failed with status: ${res.statusCode}`);
+            console.error(`Xano POST ${apiPath} failed (${res.statusCode}): ${data}`);
             resolve(null);
           }
         });
@@ -145,123 +146,16 @@ function xanoPost<T>(apiPath: string, payload: object): Promise<T | null> {
 
 /**
  * Resolve the URL to scan.
- * Priority: FRONTPR_PREVIEW_URL (manual) → GitHub Deployments API → fallbackUrl (production)
+ * Priority: FRONTPR_PREVIEW_URL (env/input) → fallbackUrl (target_url input)
  */
-async function resolveTargetUrl(fallbackUrl: string): Promise<string> {
-  // 1. Manual override takes precedence
-  const manualPreview = process.env.FRONTPR_PREVIEW_URL?.trim();
-  if (manualPreview) {
-    console.log(`Preview URL (manual): ${manualPreview}`);
-    return manualPreview;
+function resolveTargetUrl(fallbackUrl: string): string {
+  const previewUrl = process.env.FRONTPR_PREVIEW_URL?.trim();
+  if (previewUrl) {
+    console.log(`Preview URL: ${previewUrl}`);
+    return previewUrl;
   }
-
-  // 2. Try GitHub Deployments API for auto-detected preview URL
-  const token     = process.env.GITHUB_TOKEN;
-  const repo      = process.env.GITHUB_REPOSITORY;
-  const commitSha = process.env.GITHUB_SHA;
-
-  if (token && repo && commitSha) {
-    const detected = await pollDeploymentUrl(token, repo, commitSha);
-    if (detected) {
-      console.log(`Preview URL (auto-detected): ${detected}`);
-      return detected;
-    }
-  }
-
-  // 3. Fall back to production URL
-  console.log(`Preview URL: none found — scanning production URL: ${fallbackUrl}`);
+  console.log(`Target URL: ${fallbackUrl}`);
   return fallbackUrl;
-}
-
-/** Poll GitHub Deployments API until a preview URL matching the commit SHA is found, or timeout. */
-async function pollDeploymentUrl(
-  token: string,
-  repo: string,
-  commitSha: string,
-  timeoutMs = 300_000,  // 5 min max wait
-  intervalMs = 10_000,  // poll every 10s
-): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  const [owner, repoName] = repo.split("/");
-
-  console.log(`Polling GitHub Deployments for commit ${commitSha.slice(0, 7)}…`);
-
-  while (Date.now() < deadline) {
-    const url = `https://api.github.com/repos/${owner}/${repoName}/deployments?sha=${commitSha}&per_page=10`;
-
-    const previewUrl = await new Promise<string | null>((resolve) => {
-      const req = https.request(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github+json",
-          "User-Agent": "FrontPR-Scanner",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      }, (res) => {
-        let data = "";
-        res.on("data", (c) => (data += c));
-        res.on("end", async () => {
-          try {
-            const deployments: Array<{ id: number; environment: string }> = JSON.parse(data);
-            if (!Array.isArray(deployments) || deployments.length === 0) {
-              resolve(null);
-              return;
-            }
-
-            // Check statuses for each deployment — find a "success" with a target URL
-            for (const deployment of deployments) {
-              const statusUrl = `https://api.github.com/repos/${owner}/${repoName}/deployments/${deployment.id}/statuses?per_page=5`;
-              const statusResult = await fetchJson<Array<{ state: string; environment_url: string }>>(statusUrl, token);
-              if (!statusResult) continue;
-
-              const success = statusResult.find(
-                (s) => s.state === "success" && s.environment_url && s.environment_url.startsWith("https://")
-              );
-              if (success) {
-                resolve(success.environment_url);
-                return;
-              }
-            }
-            resolve(null);
-          } catch {
-            resolve(null);
-          }
-        });
-      });
-      req.on("error", () => resolve(null));
-      req.end();
-    });
-
-    if (previewUrl) return previewUrl;
-
-    const remaining = Math.round((deadline - Date.now()) / 1000);
-    console.log(`  No preview URL yet — retrying in ${intervalMs / 1000}s (${remaining}s remaining)…`);
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-
-  console.log("  Timed out waiting for deployment — falling back to production URL.");
-  return null;
-}
-
-function fetchJson<T>(url: string, token: string): Promise<T | null> {
-  return new Promise((resolve) => {
-    const req = https.request(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "User-Agent": "FrontPR-Scanner",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    }, (res) => {
-      let data = "";
-      res.on("data", (c) => (data += c));
-      res.on("end", () => {
-        try { resolve(JSON.parse(data) as T); } catch { resolve(null); }
-      });
-    });
-    req.on("error", () => resolve(null));
-    req.end();
-  });
 }
 
 /** Read lint-output.json written by lint.ts (runs before this script) */
@@ -309,8 +203,8 @@ async function run(): Promise<void> {
 
   console.log(`FrontPR scanner v${SCANNER_VERSION}`);
 
-  // Resolve the actual URL to scan (preview > manual > production)
-  const url = await resolveTargetUrl(fallbackUrl);
+  // Resolve the actual URL to scan (preview > production)
+  const url = resolveTargetUrl(fallbackUrl);
   validateUrl(url);
 
   console.log(`Scanning: ${url}`);
@@ -329,10 +223,14 @@ async function run(): Promise<void> {
     commit_sha: commitSha,
     target_url: url,
     scanner_version: SCANNER_VERSION,
+    lint_error_count: lintOutput.errorCount,
+    lint_warning_count: lintOutput.warningCount,
     lint_findings: lintPayload,
   });
 
-  const scanId = submitResult?.scan_id ?? null;
+  const scanId      = submitResult?.scan_id ?? null;
+  const shareToken  = submitResult?.share_token ?? null;
+
   if (scanId) {
     console.log(`Xano: scan created (scan_id: ${scanId}, status: pending_runtime)`);
   } else {
@@ -390,7 +288,7 @@ async function run(): Promise<void> {
 
   if (scanId) {
     console.log("Submitting runtime findings to Xano (Phase 2)...");
-    runtimeResult = await xanoPost<RuntimeResponse>(`/scan/${scanId}/runtime`, {
+    runtimeResult = await xanoPost<RuntimeResponse>("/scan/runtime", {
       api_key: apiKey,
       scan_id: scanId,
       findings,
@@ -414,6 +312,7 @@ async function run(): Promise<void> {
     scannerVersion: SCANNER_VERSION,
     targetUrl: url,
     scanId,
+    shareToken,
     findings,
     diff: runtimeResult?.diff ?? null,
   }, null, 2));
