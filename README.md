@@ -1,66 +1,95 @@
 # FrontPR
 
-FrontPR is a GitHub PR compliance scanner for frontend applications.
+Automated accessibility scanning on every pull request.
 
-The goal is to run automated checks on pull requests and return a clear pass/fail result directly in GitHub.
+FrontPR runs as a GitHub Action and checks your frontend for accessibility issues before code merges. Results appear directly in the PR as a comment and a GitHub Check.
 
-Initial checks:
-- Accessibility issues using Playwright + axe
-- Broken privacy/compliance links
-- Basic frontend compliance risks
-- Later: AI-assisted fix suggestions after user approval
+---
 
-## Intended flow
+## What it checks
 
-1. Customer installs the FrontPR GitHub Action
-2. The action runs the scanner during pull requests
-3. The scanner generates `scanner-output.json`
-4. The action sends the result to the FrontPR raw backend
-5. The backend validates and normalizes results
-6. The backend stores scan runs/findings in Xano
-7. The backend posts a result back to the GitHub PR
+- **Static analysis** — scans your JSX/TSX source files for accessibility violations (~15 seconds)
+- **Runtime analysis** — loads your deployed site in a headless browser and runs accessibility checks (~1–3 minutes)
 
-## Architecture
+---
 
-- `scanner/` — TypeScript scanner using Playwright and axe
-- `github-action/` — GitHub Action wrapper that runs the scanner
-- `backend/` — C#/.NET API for scan ingestion, GitHub integration, baseline logic, and AI fix orchestration
-- `frontend/` — FrontPR dashboard
-- `docs/` — architecture, API contracts, scanner flow, Xano data model
-- `CLAUDE.md` — AI development instructions
+## Setup
 
-## Backend/Xano split
+### 1. Get an API key
 
-Xano is used for:
-- users
-- organizations
-- projects
-- billing/subscriptions
-- scan runs
-- scan findings
-- baselines
-- audit logs
+Sign up at [frontpr.io](https://frontpr.io) and create a project to receive your API key.
 
-The raw .NET backend owns:
-- scanner ingestion
-- GitHub PR checks/comments
-- request validation
-- baseline comparison
-- AI fix orchestration
-- security-sensitive logic
+### 2. Add the secret to your repo
 
-The GitHub Action should call the .NET backend, not Xano directly.
+In your repository: **Settings → Secrets and variables → Actions → New repository secret**
 
-## Documentation
+| Name | Value |
+|------|-------|
+| `FRONTPR_API_KEY` | Your API key from the FrontPR dashboard |
 
-- [Customer installation guide](docs/customer-installation.md) — how to add FrontPR to your own repository
+### 3. Add the workflow file
 
-## Current priority
+Create `.github/workflows/frontpr.yml` in your repository:
 
-Build the first vertical slice:
+```yaml
+name: FrontPR Accessibility Scan
 
-1. Fake scanner creates `scanner-output.json`
-2. GitHub Action runs the scanner
-3. .NET backend receives scanner output
-4. Backend returns pass/fail
-5. Xano integration comes after the local flow works
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontpr:
+    name: FrontPR
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      checks: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run FrontPR Scanner
+        uses: carl773/FrontPR@main
+        with:
+          target_url: 'https://your-site.com'
+          api_key: ${{ secrets.FRONTPR_API_KEY }}
+```
+
+Replace `https://your-site.com` with the URL of your deployed site.
+
+---
+
+## Inputs
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `target_url` | Yes | URL of the site to scan |
+| `api_key` | Yes | Your FrontPR API key (use a GitHub Secret) |
+| `preview_url` | No | Override the scan URL — useful for PR preview deployments (Vercel, Netlify, etc.) |
+
+### Using preview URLs
+
+If your CI creates a preview deployment per PR, pass the preview URL so FrontPR scans the actual changes:
+
+```yaml
+- name: Run FrontPR Scanner
+  uses: carl773/FrontPR@main
+  with:
+    target_url: 'https://your-site.com'
+    preview_url: ${{ steps.deploy.outputs.url }}
+    api_key: ${{ secrets.FRONTPR_API_KEY }}
+```
+
+---
+
+## Output
+
+Each scan posts a comment on the pull request with:
+
+- A summary of findings by severity (critical, serious, moderate, minor)
+- A diff showing new issues introduced, issues fixed, and persisting issues
+- A link to the full findings in the FrontPR dashboard
+
+A GitHub Check Run is also created so you can require a passing scan before merging.

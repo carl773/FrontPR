@@ -1,0 +1,24 @@
+# Internal development docs — kept local only
+CLAUDE.md
+SETUP.md
+
+# Dependencies
+node_modules/
+scanner/node_modules/
+
+# Build output
+scanner/dist/
+scanner/build/
+
+# Environment
+.env
+.env.local
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
