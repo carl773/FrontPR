@@ -17,7 +17,7 @@ FrontPR runs as a GitHub Action and checks your frontend for accessibility issue
 
 ### 1. Get an API key
 
-Sign up at [frontpr.io](https://frontpr.io) and create a project to receive your API key.
+Sign up at [frontpr.com](https://www.frontprdev.com) and create a project to receive your API key.
 
 ### 2. Add the secret to your repo
 
