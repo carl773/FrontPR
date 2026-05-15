@@ -50,7 +50,7 @@ runs:
         PR_NUMBER: ${{ github.event.pull_request.number }}
         REPO: ${{ github.repository }}
         COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-        FRONTPR_DASHBOARD_URL: 'https://www.frontprdev.com'
+        FRONTPR_DASHBOARD_URL: 'https://www.frontprdev.com/dashboard'
       run: |
         bash "${{ github.action_path }}/post-comment.sh" \
           --lint-only \
