@@ -10,6 +10,8 @@ set -euo pipefail
 SCANNER_FILE="$1"
 LINT_FILE="$2"
 
+DASHBOARD_URL="${FRONTPR_DASHBOARD_URL:-https://www.frontprdev.com}"
+
 # ── Input validation ─────────────────────────────────────────
 
 for file in "$SCANNER_FILE" "$LINT_FILE"; do
@@ -44,8 +46,6 @@ PERSISTING=$(jq -r '.diff.persisting_count // 0' "$SCANNER_FILE")
 LINT_ERRORS=$(jq -r '.errorCount' "$LINT_FILE")
 LINT_WARNINGS=$(jq -r '.warningCount' "$LINT_FILE")
 LINT_TOTAL=$(jq -r '.findings | length' "$LINT_FILE")
-
-DASHBOARD_URL="https://frontpr-dashboard.azurestaticapps.net"
 
 # ── Check Run 1: Static Analysis (eslint) ────────────────────
 
