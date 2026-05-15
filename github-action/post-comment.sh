@@ -24,11 +24,6 @@ else
 fi
 
 DASHBOARD_URL="${FRONTPR_DASHBOARD_URL:-https://www.frontprdev.com}"
-<<<<<<< HEAD
-
-# ── Input validation ─────────────────────────────────────────
-=======
->>>>>>> f817b5a1cfa5a57b3c283d26f1586d34ab458e5d
 
 # ── Validate env ─────────────────────────────────────────────
 
@@ -60,9 +55,6 @@ LINT_ERRORS=$(jq -r '.errorCount' "$LINT_FILE")
 LINT_WARNINGS=$(jq -r '.warningCount' "$LINT_FILE")
 LINT_TOTAL=$(jq -r '.findings | length' "$LINT_FILE")
 
-<<<<<<< HEAD
-# ── Check Run 1: Static Analysis (eslint) ────────────────────
-=======
 # ── Parse scanner output (full mode only) ────────────────────
 
 if [ "$LINT_ONLY" = "false" ] && [ -n "${SCANNER_FILE:-}" ]; then
@@ -86,7 +78,6 @@ else
 fi
 
 # ── Build static analysis section ────────────────────────────
->>>>>>> f817b5a1cfa5a57b3c283d26f1586d34ab458e5d
 
 if [ "$LINT_ERRORS" -gt 0 ]; then
   STATIC_HEADER="### 🔬 Static Analysis — ❌ ${LINT_ERRORS} error(s), merge blocked"
