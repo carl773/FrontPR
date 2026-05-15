@@ -23,7 +23,7 @@ else
   LINT_FILE="$2"
 fi
 
-DASHBOARD_URL="${FRONTPR_DASHBOARD_URL:-https://www.frontprdev.com/dashboard}"
+DASHBOARD_URL="${FRONTPR_DASHBOARD_URL:-https://www.frontprdev.com}"
 
 # ── Validate env ─────────────────────────────────────────────
 
