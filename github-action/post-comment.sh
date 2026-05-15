@@ -3,23 +3,34 @@ set -euo pipefail
 
 # ============================================================
 # post-comment.sh
-# Args: $1 = scanner-output.json, $2 = lint-output.json
-# Env:  GH_TOKEN, REPO, PR_NUMBER, COMMIT_SHA
+#
+# Mode 1 — lint results only (fast, ~15s after job start):
+#   post-comment.sh --lint-only <lint-output.json>
+#
+# Mode 2 — full results (updates the existing comment):
+#   post-comment.sh <scanner-output.json> <lint-output.json>
+#
+# Env: GH_TOKEN, REPO, PR_NUMBER, COMMIT_SHA
+# Optional env: FRONTPR_DASHBOARD_URL
 # ============================================================
 
-SCANNER_FILE="$1"
-LINT_FILE="$2"
+LINT_ONLY=false
+if [ "$1" = "--lint-only" ]; then
+  LINT_ONLY=true
+  LINT_FILE="$2"
+else
+  SCANNER_FILE="$1"
+  LINT_FILE="$2"
+fi
 
 DASHBOARD_URL="${FRONTPR_DASHBOARD_URL:-https://www.frontprdev.com}"
+<<<<<<< HEAD
 
 # ── Input validation ─────────────────────────────────────────
+=======
+>>>>>>> f817b5a1cfa5a57b3c283d26f1586d34ab458e5d
 
-for file in "$SCANNER_FILE" "$LINT_FILE"; do
-  if [ ! -f "$file" ]; then
-    echo "Error: file not found: $file" >&2
-    exit 1
-  fi
-done
+# ── Validate env ─────────────────────────────────────────────
 
 if ! echo "$REPO" | grep -qE '^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+$'; then
   echo "Error: REPO has unexpected format: $REPO" >&2; exit 1
@@ -31,33 +42,64 @@ if ! echo "$COMMIT_SHA" | grep -qE '^[0-9a-f]{40}$'; then
   echo "Error: COMMIT_SHA has unexpected format" >&2; exit 1
 fi
 
-# ── Parse outputs ────────────────────────────────────────────
+# ── Validate files ───────────────────────────────────────────
 
-# axe-core / runtime
-TARGET=$(jq -r '.targetUrl' "$SCANNER_FILE")
-TOTAL=$(jq -r '.findings | length' "$SCANNER_FILE")
-SCAN_ID=$(jq -r '.scanId // "null"' "$SCANNER_FILE")
-HAS_PREVIOUS=$(jq -r '.diff.has_previous // false' "$SCANNER_FILE")
-NEW_COUNT=$(jq -r '.diff.new_count // 0' "$SCANNER_FILE")
-FIXED_COUNT=$(jq -r '.diff.fixed_count // 0' "$SCANNER_FILE")
-PERSISTING=$(jq -r '.diff.persisting_count // 0' "$SCANNER_FILE")
+if [ ! -f "$LINT_FILE" ]; then
+  echo "Error: lint file not found: $LINT_FILE" >&2
+  exit 1
+fi
 
-# eslint / static
+if [ "$LINT_ONLY" = "false" ] && [ ! -f "$SCANNER_FILE" ]; then
+  echo "Warning: scanner output not found — posting partial results" >&2
+  SCANNER_FILE=""
+fi
+
+# ── Parse lint output ────────────────────────────────────────
+
 LINT_ERRORS=$(jq -r '.errorCount' "$LINT_FILE")
 LINT_WARNINGS=$(jq -r '.warningCount' "$LINT_FILE")
 LINT_TOTAL=$(jq -r '.findings | length' "$LINT_FILE")
 
+<<<<<<< HEAD
 # ── Check Run 1: Static Analysis (eslint) ────────────────────
+=======
+# ── Parse scanner output (full mode only) ────────────────────
+
+if [ "$LINT_ONLY" = "false" ] && [ -n "${SCANNER_FILE:-}" ]; then
+  TARGET=$(jq -r '.targetUrl' "$SCANNER_FILE")
+  TOTAL=$(jq -r '.findings | length' "$SCANNER_FILE")
+  SCAN_ID=$(jq -r '.scanId // "null"' "$SCANNER_FILE")
+  SHARE_TOKEN=$(jq -r '.shareToken // ""' "$SCANNER_FILE")
+  HAS_PREVIOUS=$(jq -r '.diff.has_previous // false' "$SCANNER_FILE")
+  NEW_COUNT=$(jq -r '.diff.new_count // 0' "$SCANNER_FILE")
+  FIXED_COUNT=$(jq -r '.diff.fixed_count // 0' "$SCANNER_FILE")
+  PERSISTING=$(jq -r '.diff.persisting_count // 0' "$SCANNER_FILE")
+else
+  TARGET="scanning..."
+  TOTAL=0
+  SCAN_ID="null"
+  SHARE_TOKEN=""
+  HAS_PREVIOUS="false"
+  NEW_COUNT=0
+  FIXED_COUNT=0
+  PERSISTING=0
+fi
+
+# ── Build static analysis section ────────────────────────────
+>>>>>>> f817b5a1cfa5a57b3c283d26f1586d34ab458e5d
 
 if [ "$LINT_ERRORS" -gt 0 ]; then
+  STATIC_HEADER="### 🔬 Static Analysis — ❌ ${LINT_ERRORS} error(s), merge blocked"
   LINT_CONCLUSION="failure"
-  LINT_TITLE="${LINT_ERRORS} accessibility error(s) found in source code"
+  LINT_CHECK_TITLE="${LINT_ERRORS} accessibility error(s) found in source code"
 elif [ "$LINT_WARNINGS" -gt 0 ]; then
+  STATIC_HEADER="### 🔬 Static Analysis — ⚠️ ${LINT_WARNINGS} warning(s)"
   LINT_CONCLUSION="neutral"
-  LINT_TITLE="No errors — ${LINT_WARNINGS} warning(s) to review"
+  LINT_CHECK_TITLE="No errors — ${LINT_WARNINGS} warning(s) to review"
 else
+  STATIC_HEADER="### 🔬 Static Analysis — ✅ Clean"
   LINT_CONCLUSION="success"
-  LINT_TITLE="No accessibility issues in source code"
+  LINT_CHECK_TITLE="No accessibility issues in source code"
 fi
 
 LINT_SUMMARY="Scanned JSX/TSX source files using \`eslint-plugin-jsx-a11y\`.
@@ -66,79 +108,6 @@ LINT_SUMMARY="Scanned JSX/TSX source files using \`eslint-plugin-jsx-a11y\`.
 |---|---|
 | 🔴 Errors (blocking) | ${LINT_ERRORS} |
 | ⚠️ Warnings | ${LINT_WARNINGS} |"
-
-# Build annotations array (max 50, errors first — already sorted by lint.ts)
-ANNOTATIONS=$(jq -c '
-  .findings[:50] | map({
-    path: .filePath,
-    start_line: .line,
-    end_line: .line,
-    start_column: .column,
-    end_column: .column,
-    annotation_level: (if .severity == "error" then "failure" else "warning" end),
-    title: .ruleId,
-    message: .message
-  })
-' "$LINT_FILE")
-
-gh api "repos/${REPO}/check-runs" \
-  --method POST \
-  --field name="FrontPR — Static Analysis" \
-  --field head_sha="${COMMIT_SHA}" \
-  --field status="completed" \
-  --field conclusion="${LINT_CONCLUSION}" \
-  --field "output[title]=${LINT_TITLE}" \
-  --field "output[summary]=${LINT_SUMMARY}" \
-  --field "output[annotations]=${ANNOTATIONS}" \
-  > /dev/null \
-  || echo "Warning: could not create static analysis check run (non-fatal)"
-
-# ── Check Run 2: Runtime Scan (axe-core) ─────────────────────
-
-if [ "$HAS_PREVIOUS" = "true" ] && [ "$NEW_COUNT" -eq 0 ]; then
-  RUNTIME_CONCLUSION="success"
-  RUNTIME_TITLE="No new regressions — ${FIXED_COUNT} fixed, ${PERSISTING} persisting"
-elif [ "$HAS_PREVIOUS" = "true" ] && [ "$NEW_COUNT" -gt 0 ]; then
-  RUNTIME_CONCLUSION="neutral"
-  RUNTIME_TITLE="${NEW_COUNT} new finding(s) since last scan (informational)"
-elif [ "$TOTAL" -eq 0 ]; then
-  RUNTIME_CONCLUSION="success"
-  RUNTIME_TITLE="No accessibility issues found at runtime"
-else
-  RUNTIME_CONCLUSION="neutral"
-  RUNTIME_TITLE="${TOTAL} findings — first scan, no baseline yet"
-fi
-
-RUNTIME_SUMMARY="Scanned \`${TARGET}\` using axe-core + Playwright.
-
-| | Count |
-|---|---|
-| 🔴 New findings | ${NEW_COUNT} |
-| ✅ Fixed | ${FIXED_COUNT} |
-| — Persisting | ${PERSISTING} |
-| Total | ${TOTAL} |"
-
-gh api "repos/${REPO}/check-runs" \
-  --method POST \
-  --field name="FrontPR — Runtime Scan" \
-  --field head_sha="${COMMIT_SHA}" \
-  --field status="completed" \
-  --field conclusion="${RUNTIME_CONCLUSION}" \
-  --field "output[title]=${RUNTIME_TITLE}" \
-  --field "output[summary]=${RUNTIME_SUMMARY}" \
-  > /dev/null \
-  || echo "Warning: could not create runtime check run (non-fatal)"
-
-# ── Build PR comment ──────────────────────────────────────────
-
-# Static section
-if [ "$LINT_ERRORS" -gt 0 ]; then
-  STATIC_HEADER="### 🔬 Static Analysis — ❌ ${LINT_ERRORS} error(s), merge blocked"
-elif [ "$LINT_WARNINGS" -gt 0 ]; then
-  STATIC_HEADER="### 🔬 Static Analysis — ⚠️ ${LINT_WARNINGS} warning(s)"
-else
-  STATIC_HEADER="### 🔬 Static Analysis — ✅ Clean"
-fi
 
 if [ "$LINT_TOTAL" -gt 0 ]; then
   LINT_TABLE=$(jq -r '
@@ -169,30 +138,76 @@ else
 No issues found in JSX/TSX source files."
 fi
 
-# Runtime section
-if [ "$HAS_PREVIOUS" = "true" ]; then
-  if [ "$NEW_COUNT" -eq 0 ]; then
-    RUNTIME_HEADER="### 🌐 Runtime Scan — ✅ No new regressions"
-  else
-    RUNTIME_HEADER="### 🌐 Runtime Scan — ⚠️ ${NEW_COUNT} new finding(s)"
-  fi
-  DIFF_LINE="🔴 **+${NEW_COUNT}** new &nbsp; ✅ **−${FIXED_COUNT}** fixed &nbsp; — ${PERSISTING} persisting"
+# ── Build Check Run: Static Analysis ─────────────────────────
+
+ANNOTATIONS=$(jq -c '
+  .findings[:50] | map({
+    path: .filePath,
+    start_line: .line,
+    end_line: .line,
+    start_column: .column,
+    end_column: .column,
+    annotation_level: (if .severity == "error" then "failure" else "warning" end),
+    title: .ruleId,
+    message: .message
+  })
+' "$LINT_FILE")
+
+gh api "repos/${REPO}/check-runs" \
+  --method POST \
+  --field name="FrontPR — Static Analysis" \
+  --field head_sha="${COMMIT_SHA}" \
+  --field status="completed" \
+  --field conclusion="${LINT_CONCLUSION}" \
+  --field "output[title]=${LINT_CHECK_TITLE}" \
+  --field "output[summary]=${LINT_SUMMARY}" \
+  --field "output[annotations]=${ANNOTATIONS}" \
+  > /dev/null \
+  || echo "Warning: could not create static analysis check run (non-fatal)"
+
+# ── Build runtime section ─────────────────────────────────────
+
+if [ "$LINT_ONLY" = "true" ]; then
+  RUNTIME_SECTION="### 🌐 Runtime Scan — ⏳ Scanning…
+
+> axe-core is running against your site. Results will appear here in 1–3 minutes."
+
 else
-  RUNTIME_HEADER="### 🌐 Runtime Scan — 🔍 First scan"
-  DIFF_LINE="No baseline yet — future scans will show what changed."
-fi
+  # Determine conclusion
+  if [ "$HAS_PREVIOUS" = "true" ] && [ "$NEW_COUNT" -eq 0 ]; then
+    RUNTIME_CONCLUSION="success"
+    RUNTIME_HEADER="### 🌐 Runtime Scan — ✅ No new regressions"
+    RUNTIME_CHECK_TITLE="No new regressions — ${FIXED_COUNT} fixed, ${PERSISTING} persisting"
+  elif [ "$HAS_PREVIOUS" = "true" ] && [ "$NEW_COUNT" -gt 0 ]; then
+    RUNTIME_CONCLUSION="neutral"
+    RUNTIME_HEADER="### 🌐 Runtime Scan — ⚠️ ${NEW_COUNT} new finding(s)"
+    RUNTIME_CHECK_TITLE="${NEW_COUNT} new finding(s) since last scan (informational)"
+  elif [ "$TOTAL" -eq 0 ]; then
+    RUNTIME_CONCLUSION="success"
+    RUNTIME_HEADER="### 🌐 Runtime Scan — ✅ No issues found"
+    RUNTIME_CHECK_TITLE="No accessibility issues found at runtime"
+  else
+    RUNTIME_CONCLUSION="neutral"
+    RUNTIME_HEADER="### 🌐 Runtime Scan — 🔍 First scan"
+    RUNTIME_CHECK_TITLE="${TOTAL} finding(s) — first scan, no baseline yet"
+  fi
 
-# Top rules from axe-core (grouped by ruleId)
-if [ "$TOTAL" -gt 0 ]; then
-  TOP_RULES=$(jq -r '
-    .findings |
-    group_by(.ruleId) |
-    sort_by(-length) |
-    .[:5][] |
-    "| `" + .[0].ruleId + "` | " + (.[0].severity | ascii_upcase) + " | " + (length|tostring) + " |"
-  ' "$SCANNER_FILE")
+  if [ "$HAS_PREVIOUS" = "true" ]; then
+    DIFF_LINE="🔴 **+${NEW_COUNT}** new &nbsp; ✅ **−${FIXED_COUNT}** fixed &nbsp; — ${PERSISTING} persisting"
+  else
+    DIFF_LINE="No baseline yet — future scans will show regressions vs. this run."
+  fi
 
-  RUNTIME_SECTION="${RUNTIME_HEADER}
+  if [ "$TOTAL" -gt 0 ] && [ -n "${SCANNER_FILE:-}" ]; then
+    TOP_RULES=$(jq -r '
+      .findings |
+      group_by(.ruleId) |
+      sort_by(-length) |
+      .[:5][] |
+      "| `" + .[0].ruleId + "` | " + (.[0].severity | ascii_upcase) + " | " + (length|tostring) + " |"
+    ' "$SCANNER_FILE")
+
+    RUNTIME_SECTION="${RUNTIME_HEADER}
 
 ${DIFF_LINE}
 
@@ -204,22 +219,58 @@ ${DIFF_LINE}
 ${TOP_RULES}
 
 </details>"
-else
-  RUNTIME_SECTION="${RUNTIME_HEADER}
+  else
+    RUNTIME_SECTION="${RUNTIME_HEADER}
 
-No accessibility issues found at runtime."
+${DIFF_LINE}"
+  fi
+
+  # ── Build Check Run: Runtime Scan ──────────────────────────
+
+  RUNTIME_SUMMARY="Scanned \`${TARGET}\` using axe-core + Playwright.
+
+| | Count |
+|---|---|
+| 🔴 New findings | ${NEW_COUNT} |
+| ✅ Fixed | ${FIXED_COUNT} |
+| — Persisting | ${PERSISTING} |
+| Total | ${TOTAL} |"
+
+  gh api "repos/${REPO}/check-runs" \
+    --method POST \
+    --field name="FrontPR — Runtime Scan" \
+    --field head_sha="${COMMIT_SHA}" \
+    --field status="completed" \
+    --field conclusion="${RUNTIME_CONCLUSION}" \
+    --field "output[title]=${RUNTIME_CHECK_TITLE}" \
+    --field "output[summary]=${RUNTIME_SUMMARY}" \
+    > /dev/null \
+    || echo "Warning: could not create runtime check run (non-fatal)"
 fi
 
-# Dashboard link
-if [ "$SCAN_ID" != "null" ] && [ -n "$SCAN_ID" ]; then
-  LINK="[View full report →](${DASHBOARD_URL}/scan/${SCAN_ID})"
+# ── Build dashboard link ──────────────────────────────────────
+
+if [ "$LINT_ONLY" = "true" ]; then
+  LINK="*Full report link will appear when scan completes.*"
+elif [ "$SCAN_ID" != "null" ] && [ -n "$SCAN_ID" ] && [ -n "$SHARE_TOKEN" ]; then
+  LINK="[View full report →](${DASHBOARD_URL}/scan?id=${SCAN_ID}&token=${SHARE_TOKEN}) &nbsp;·&nbsp; *Link valid 30 min — log in to access later*"
+elif [ "$SCAN_ID" != "null" ] && [ -n "$SCAN_ID" ]; then
+  LINK="[View full report →](${DASHBOARD_URL}/scan?id=${SCAN_ID})"
 else
   LINK="[Open dashboard →](${DASHBOARD_URL})"
 fi
 
+# ── Assemble PR comment ───────────────────────────────────────
+
+if [ "$LINT_ONLY" = "true" ]; then
+  TARGET_LINE="**Target:** scanning…"
+else
+  TARGET_LINE="**Target:** ${TARGET}"
+fi
+
 BODY="## FrontPR Accessibility Report
 
-**Target:** ${TARGET}
+${TARGET_LINE}
 
 ${STATIC_SECTION}
 
@@ -228,7 +279,7 @@ ${RUNTIME_SECTION}
 ---
 ${LINK} &nbsp;·&nbsp; *Powered by FrontPR*"
 
-# ── Post or update PR comment ────────────────────────────────
+# ── Post or update PR comment ─────────────────────────────────
 
 EXISTING_ID=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
   --jq '.[] | select(.body | contains("Powered by FrontPR")) | .id' \
