@@ -6,7 +6,7 @@ import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 
 const SCANNER_VERSION = "0.1.0";
-const XANO_HOST = "xnbe-j9zq-8ibd.f2.xano.io";
+const XANO_HOST = "x8ki-letl-twmt.n7.xano.io";
 const XANO_API  = "/api:aeK-ruu4";
 
 interface Finding {
